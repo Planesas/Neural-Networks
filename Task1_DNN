@@ -1,0 +1,142 @@
+---
+title: "Breast"
+author: "Oriol Planesas, Heribert Roig"
+date: "31/3/2022"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+**1. Describe protein abundance and gene expression datasets. How many patients have data of both types available. Are there missing data from some of the datasets? Preprocess them if necessary.**
+
+```{r data import}
+protein <- read.csv("protein_abundance.csv", sep = "")
+gene <- read.csv("gene_expression.csv", sep = "")
+```
+
+
+```{r Comparten individuos}
+n = 0
+for (i in dim(protein)[1]) {
+  for (j in dim(gene)[1]){
+    if (protein$Sample[i] == gene$Sample[j]) {
+      n <- n + 1
+      print(i)
+      print(j)
+      print(protein$Sample[i])
+    }
+  }
+}
+
+print(n)
+```
+
+```{r missing}
+sum(is.na(gene)) # 1495 missings en gene
+sum(is.na(protein)) # 0 missings en protein
+which(is.na(gene))
+
+for(i in 1:ncol(gene)) {                                   # Replace NA in all columns
+  gene[ , i][is.na(gene[ , i])] <- mean(gene[ , i], na.rm = TRUE)
+}
+
+```
+With gene expression data:
+
+**2. Select the 25% of genes with the most variability**
+
+```{r}
+
+
+```
+
+
+
+```{r}
+
+```
+
+
+```{r}
+
+```
+
+
+
+```{r}
+
+```
+
+
+```{r}
+
+```
+
+
+
+```{r}
+
+```
+
+
+```{r}
+
+```
+
+
+
+```{r}
+
+```
+
+
+```{r}
+
+```
+
+
+
+```{r}
+
+```
+
+
+```{r}
+
+```
+
+
+
+```{r}
+
+```
+
+
+```{r}
+
+```
+
+
+
+```{r}
+
+```
+
+
+```{r}
+
+```
+
+
+
+```{r}
+
+```
+
+
+```{r}
+
+```
+
