@@ -9,38 +9,47 @@ output: pdf_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+```{r}
+library(keras)
+```
+
 **1. Describe protein abundance and gene expression datasets. How many patients have data of both types available. Are there missing data from some of the datasets? Preprocess them if necessary.**
 
 ```{r data import}
-protein <- read.csv("protein_abundance.csv", sep = "")
+protein_abundance <- read.csv("protein_abundance.csv", sep = "")
 gene <- read.csv("gene_expression.csv", sep = "")
+clinical <- read.csv("clinical.csv", sep = "\t")
+copy <- read.csv("copy_number.csv", sep = "\t")
 ```
 
 
 ```{r Comparten individuos}
-n = 0
-for (i in dim(protein)[1]) {
-  for (j in dim(gene)[1]){
-    if (protein$Sample[i] == gene$Sample[j]) {
-      n <- n + 1
-      print(i)
-      print(j)
-      print(protein$Sample[i])
-    }
-  }
-}
 
-print(n)
+set1<-intersect(protein_abundance$Sample,gene$Sample)
+set1 <- intersect(set1, clinical$Sample)
+
+xgene<-gene[gene$Sample %in% set1,]
+xprotein<-protein_abundance[protein_abundance$Sample %in% set1,]
+
+xclinical <- clinical[clinical$Sample %in% set1,]
+xclinical<-xclinical[,c(1,9)]
+
 ```
+387 individuos están presentes en los datasets clinical, gene y protein_abundance.
 
 ```{r missing}
-sum(is.na(gene)) # 1495 missings en gene
-sum(is.na(protein)) # 0 missings en protein
-which(is.na(gene))
+sum(is.na(xgene)) # 1161 missings en gene
+sum(is.na(xprotein)) # 0 missings en protein
+sum(is.na(xclinical)) # 0 missings en protein
 
-for(i in 1:ncol(gene)) {                                   # Replace NA in all columns
-  gene[ , i][is.na(gene[ , i])] <- mean(gene[ , i], na.rm = TRUE)
-}
+# for(i in 1:ncol(gene)) {                                   # Replace NA in all columns
+#   gene[ , i][is.na(gene[ , i])] <- mean(gene[ , i], na.rm = TRUE)
+# }
+
+# NAs <- which(is.na(gene), arr.ind = T)
+# 
+# dim(gene[, -unique(NAs[,2])])
+
 
 ```
 With gene expression data:
@@ -48,24 +57,170 @@ With gene expression data:
 **2. Select the 25% of genes with the most variability**
 
 ```{r}
+# gene_var <- var(gene[,-1], na.rm = F)
+
+gene_var <- diag(var(gene[,2:100], na.rm = T)) # Agafem nomes 100 columnes perque el PC no pensi tanta estona.
+
+gene_topvar <- sort(gene_var, decreasing = T)[1:25] # Calculem la variança de les variables i ens quedem amb el top 25.
+
+xgene <- xgene[,c("Sample", names(gene_topvar))] # Seleccionem les variables amb major variança
+
+sum(is.na(xgene)) # No hi ha missings
+
+```
+
+```{r}
+sel1<-which(xclinical$breast_carcinoma_estrogen_receptor_status != "Positive")
+sel2<-which(xclinical$breast_carcinoma_estrogen_receptor_status != "Negative")
+sel<-intersect(sel1,sel2)
+xclinical<-xclinical[-sel,]
+# xclinical<-xclinical[-which(is.na(xclinical$breast_carcinoma_estrogen_receptor_status)),]
+tot_data <- merge(xclinical, xprotein, by.x = "Sample", by.y = "Sample")
+tot_data <- merge(tot_data, xgene, by.x = "Sample", by.y = "Sample")
+
+```
 
 
+```{r}
+set.seed(123)
+training<-sample(1:nrow(tot_data),2*nrow(tot_data)/3)
+
+
+xtrain<-tot_data[training,-c(1,2)]
+xtest<-tot_data[-training,-c(1,2)]
+xtrain<-scale(xtrain)
+xtest<-scale(xtest)
+ytrain<-tot_data[training,2]
+ytest<-tot_data[-training,2]
+ylabels<-vector()
+ylabels[ytrain=="Positive"]<-1
+ylabels[ytrain=="Negative"]<-0
+
+
+```
+
+**3. Implement an stacked autoencoder (SAE) with three stacked layers of 1000, 100, 50 nodes. Provide in each case evidence of the quality of the coding obtained.**
+
+
+```{r}
+# AE1
+input_enc1 <- layer_input(shape = 167)
+output_enc1 <- input_enc1 %>%
+  layer_dense(units = 1000, activation = "relu")
+encoder1 = keras_model(input_enc1, output_enc1)
+summary(encoder1)
+
+input_dec1 = layer_input(shape = 1000)
+output_dec1 <- input_dec1 %>%
+  layer_dense(units = 167, activation="linear")
+decoder1 = keras_model(input_dec1, output_dec1)
+summary(decoder1)
+
+aen_input1 = layer_input(shape = 167)
+aen_output1 = aen_input1 %>%
+  encoder1() %>%
+  decoder1()
+sae1 = keras_model(aen_input1, aen_output1)
+summary(sae1)
+
+
+sae1 %>% compile(
+optimizer = "rmsprop",
+loss = "mse")
+
+sae1 %>% fit(
+x=as.matrix(xtrain),
+y=as.matrix(xtrain),
+epochs = 25,
+batch_size=64,
+validation_split = 0.2)
+#Generating with Autoencoder
+encoded_expression1 <- encoder1 %>% predict(as.matrix(xtrain))
+
+vcor1<-diag(cor(encoded_expression1,xtrain))
+hist(vcor1)
+
+```
+
+
+```{r}
+# AE2
+input_enc2 <- layer_input(shape = 1000)
+output_enc2 <- input_enc2 %>%
+  layer_dense(units = 100, activation = "relu")
+encoder2 = keras_model(input_enc2, output_enc2)
+summary(encoder2)
+
+input_dec2 = layer_input(shape = 100)
+output_dec2 <- input_dec2 %>%
+  layer_dense(units = 1000, activation="linear")
+decoder2 = keras_model(input_dec2, output_dec2)
+summary(decoder2)
+
+aen_input2 = input_enc2
+aen_output2 = aen_input2 %>%
+  encoder2() %>%
+  decoder2()
+sae2 = keras_model(aen_input2, aen_output2)
+summary(sae2)
+
+
+sae2 %>% compile(
+optimizer = "rmsprop",
+loss = "mse")
+
+sae2 %>% fit(
+x=as.matrix(encoded_expression1),
+y=as.matrix(encoded_expression1),
+epochs = 25,
+batch_size=64,
+validation_split = 0.2)
+#Generating with Autoencoder
+encoded_expression2 <- encoder2 %>% predict(as.matrix(encoded_expression1))
+
+vcor2<-diag(cor(encoded_expression2,xtrain))
+hist(vcor2)
 ```
 
 
 
 ```{r}
 
-```
+# AE3
+input_enc3 <- layer_input(shape = 100)
+output_enc3 <- input_enc3 %>%
+  layer_dense(units = 50, activation = "relu")
+encoder3 = keras_model(input_enc3, output_enc3)
+summary(encoder3)
+
+input_dec3 = layer_input(shape = 50)
+output_dec3 <- input_dec3 %>%
+  layer_dense(units = 100, activation="linear")
+decoder3 = keras_model(input_dec3, output_dec3)
+summary(decoder3)
+
+aen_input3 = input_enc3
+aen_output3 = aen_input3 %>%
+  encoder3() %>%
+  decoder3()
+sae3 = keras_model(aen_input3, aen_output3)
+summary(sae3)
 
 
-```{r}
+sae3 %>% compile(
+optimizer = "rmsprop",
+loss = "mse")
 
-```
-
-
-
-```{r}
+sae3 %>% fit(
+x=as.matrix(encoded_expression2),
+y=as.matrix(encoded_expression2),
+epochs = 40,
+batch_size=64,
+validation_split = 0.2)
+#Generating with Autoencoder
+encoded_expression3 <- encoder3 %>% predict(as.matrix(encoded_expression2))
+vcor3<-diag(cor(encoded_expression3,xtrain))
+hist(vcor3)
 
 ```
 
