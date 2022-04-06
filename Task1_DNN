@@ -11,6 +11,8 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ```{r}
 library(keras)
+library(caret)
+library(pROC)
 ```
 
 **1. Describe protein abundance and gene expression datasets. How many patients have data of both types available. Are there missing data from some of the datasets? Preprocess them if necessary.**
@@ -95,7 +97,9 @@ ytest<-tot_data[-training,2]
 ylabels<-vector()
 ylabels[ytrain=="Positive"]<-1
 ylabels[ytrain=="Negative"]<-0
-
+ylabelstest<-vector()
+ylabelstest[ytest=="Positive"]<-1
+ylabelstest[ytest=="Negative"]<-0
 
 ```
 
@@ -224,9 +228,74 @@ hist(vcor3)
 
 ```
 
+**4.Using the SAE as pre-training model, couple it with a two-layer DNN to predict the state of the estrogen receptor. The DNN must have 10 nodes in the first layer followed by the output layer.**
+
+Generamos el modelo juntando los 3 encoders anteriores
 
 ```{r}
+sae_input = layer_input(shape = 167)
+sae_output = sae_input %>%
+encoder1() %>%
+encoder2() %>%
+encoder3() %>%
+layer_dense(10,activation = "relu")%>%
+layer_dense(1,activation = "sigmoid")
+sae = keras_model(sae_input, sae_output)
+summary(sae)
+```
 
+
+```{r}
+sae %>% compile(
+optimizer = "rmsprop",
+loss = 'binary_crossentropy',
+metric = "acc"
+)
+```
+
+
+```{r}
+sae %>% fit(
+x=xtrain,
+y=ylabels,
+epochs = 30,
+batch_size=64,
+validation_split = 0.2
+)
+```
+
+
+```{r}
+sae %>%
+evaluate(as.matrix(xtest), ylabelstest)
+```
+
+
+```{r}
+yhat <- predict(sae,as.matrix(xtest))
+```
+
+
+```{r}
+yhatclass<-as.factor(ifelse(yhat<0.5,0,1))
+table(yhatclass, ylabelstest)
+```
+
+
+```{r}
+confusionMatrix(yhatclass,as.factor(ylabelstest))
+```
+
+**5.On the test set, provide the ROC curve and AUC and other performance metrics.**
+
+```{r}
+roc_sae_test <- roc(response = ylabelstest, predictor =yhat)
+```
+
+
+```{r}
+plot(roc_sae_test, col = "blue", print.auc=TRUE)
+legend("bottomright", legend = c("sae"), lty = c(1), col = c("blue"))
 ```
 
 
@@ -250,48 +319,3 @@ hist(vcor3)
 ```{r}
 
 ```
-
-
-
-```{r}
-
-```
-
-
-```{r}
-
-```
-
-
-
-```{r}
-
-```
-
-
-```{r}
-
-```
-
-
-
-```{r}
-
-```
-
-
-```{r}
-
-```
-
-
-
-```{r}
-
-```
-
-
-```{r}
-
-```
-
