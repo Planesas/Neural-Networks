@@ -222,72 +222,151 @@ encoded_expression3 <- encoder3 %>% predict(as.matrix(encoded_expression2))
 vcor3<-diag(cor(encoded_expression3,xtrain))
 hist(vcor3)
 
+
+
+**4.Using the SAE as pre-training model, couple it with a two-layer DNN to predict the state of the estrogen receptor. The DNN must have 10 nodes in the first layer followed by the output layer.**
+
+Generamos el modelo juntando los 3 encoders anteriores
+
+```{r}
+sae_input = layer_input(shape = 167)
+sae_output = sae_input %>%
+encoder1() %>%
+encoder2() %>%
+encoder3() %>%
+layer_dense(10,activation = "relu")%>%
+layer_dense(5,activation = "relu")%>%
+layer_dense(1,activation = "sigmoid")
+sae = keras_model(sae_input, sae_output)
+summary(sae)
 ```
 
 
 ```{r}
-
-```
-
-
-
-```{r}
-
-```
-
-
-```{r}
-
-```
-
-
-
-```{r}
-
+sae %>% compile(
+optimizer = "rmsprop",
+loss = 'binary_crossentropy',
+metric = "acc"
+)
 ```
 
 
 ```{r}
-
-```
-
-
-
-```{r}
-
-```
-
-
-```{r}
-
-```
-
-
-
-```{r}
-
+sae %>% fit(
+x=xtrain,
+y=ylabels,
+epochs = 30,
+batch_size = 64,
+validation_split = 0.2
+)
 ```
 
 
 ```{r}
-
-```
-
-
-
-```{r}
-
+sae %>%
+evaluate(as.matrix(xtest), ylabelstest)
 ```
 
 
 ```{r}
-
+yhat <- predict(sae,as.matrix(xtest))
 ```
 
 
+```{r}
+yhatclass<-as.factor(ifelse(yhat<0.5,0,1))
+table(yhatclass, ylabelstest)
+```
+
 
 ```{r}
+confusionMatrix(yhatclass,as.factor(ylabelstest))
+```
 
+**5.On the test set, provide the ROC curve and AUC and other performance metrics.**
+
+```{r}
+roc_sae_test <- roc(response = ylabelstest, predictor =yhat)
+```
+
+
+```{r}
+plot(roc_sae_test, col = "blue", print.auc=TRUE)
+legend("bottomright", legend = c("sae"), lty = c(1), col = c("blue"))
+```
+
+**6. With tfruns() repeat points 4 and 5, exploring the configurations of the first layer of the DNN based on 5, 10 and 20 nodes. Determine which configuration is the best.**
+
+```{r}
+FLAGS <- flags(
+  flag_numeric("nodes", 5)
+)
+```
+
+
+```{r}
+sae_input = layer_input(shape = 167)
+sae_output = sae_input %>%
+encoder1() %>%
+encoder2() %>%
+encoder3() %>%
+layer_dense(units = FLAGS$nodes,activation = "relu")%>%
+layer_dense(1,activation = "sigmoid")
+sae = keras_model(sae_input, sae_output)
+summary(sae)
+```
+
+
+```{r}
+sae %>% compile(
+optimizer = "rmsprop",
+loss = 'binary_crossentropy',
+metric = "acc"
+)
+```
+
+
+```{r}
+sae %>% fit(
+x=xtrain,
+y=ylabels,
+epochs = 30,
+batch_size=64,
+validation_split = 0.2
+)
+```
+
+
+```{r}
+sae %>%
+evaluate(as.matrix(xtest), ylabelstest)
+```
+
+
+```{r}
+yhat <- predict(sae,as.matrix(xtest))
+```
+
+
+```{r}
+yhatclass<-as.factor(ifelse(yhat<0.5,0,1))
+table(yhatclass, ylabelstest)
+```
+
+
+```{r}
+confusionMatrix(yhatclass,as.factor(ylabelstest))
+```
+
+
+```{r}
+roc_sae_test <- roc(response = ylabelstest, predictor =yhat)
+```
+
+
+```{r}
+plot(roc_sae_test, col = "blue", print.auc=TRUE)
+legend("bottomright", legend = c("sae"), lty = c(1), col = c("blue"))
 ```
 
 
