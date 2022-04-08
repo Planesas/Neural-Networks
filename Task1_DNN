@@ -1,8 +1,18 @@
 ---
 title: "Breast"
 author: "Oriol Planesas, Heribert Roig"
-date: "31/3/2022"
-output: pdf_document
+date: "`r format(Sys.Date(),'%e de %B, %Y')`"
+output:
+  html_document: default
+  pdf_document: default
+params:
+  file1: "protein_abundance.csv"
+  file2: "gene_expression.csv"
+  file3: "clinical.csv"
+  file4: "copy_number.csv"
+  flagnode1: 5
+  flagnode2: 10
+  flagnode3: 20
 ---
 
 ```{r setup, include=FALSE}
@@ -11,15 +21,17 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ```{r}
 library(keras)
+library(caret)
+library(pROC)
 ```
 
 **1. Describe protein abundance and gene expression datasets. How many patients have data of both types available. Are there missing data from some of the datasets? Preprocess them if necessary.**
 
 ```{r data import}
-protein_abundance <- read.csv("protein_abundance.csv", sep = "")
-gene <- read.csv("gene_expression.csv", sep = "")
-clinical <- read.csv("clinical.csv", sep = "\t")
-copy <- read.csv("copy_number.csv", sep = "\t")
+protein_abundance <- read.csv(params$file1, sep = "")
+gene <- read.csv(params$file2, sep = "")
+clinical <- read.csv(params$file3, sep = "\t")
+copy <- read.csv(params$file4, sep = "\t")
 ```
 
 
@@ -75,9 +87,7 @@ sel2<-which(xclinical$breast_carcinoma_estrogen_receptor_status != "Negative")
 sel<-intersect(sel1,sel2)
 xclinical<-xclinical[-sel,]
 # xclinical<-xclinical[-which(is.na(xclinical$breast_carcinoma_estrogen_receptor_status)),]
-tot_data <- merge(xclinical, xprotein, by.x = "Sample", by.y = "Sample")
-tot_data <- merge(tot_data, xgene, by.x = "Sample", by.y = "Sample")
-
+tot_data <- merge(xclinical, xgene, by.x = "Sample", by.y = "Sample")
 ```
 
 
@@ -95,16 +105,17 @@ ytest<-tot_data[-training,2]
 ylabels<-vector()
 ylabels[ytrain=="Positive"]<-1
 ylabels[ytrain=="Negative"]<-0
-
+ylabelstest<-vector()
+ylabelstest[ytest=="Positive"]<-1
+ylabelstest[ytest=="Negative"]<-0
 
 ```
 
 **3. Implement an stacked autoencoder (SAE) with three stacked layers of 1000, 100, 50 nodes. Provide in each case evidence of the quality of the coding obtained.**
 
-
 ```{r}
 # AE1
-input_enc1 <- layer_input(shape = 167)
+input_enc1 <- layer_input(shape = 25)
 output_enc1 <- input_enc1 %>%
   layer_dense(units = 1000, activation = "relu")
 encoder1 = keras_model(input_enc1, output_enc1)
@@ -112,11 +123,11 @@ summary(encoder1)
 
 input_dec1 = layer_input(shape = 1000)
 output_dec1 <- input_dec1 %>%
-  layer_dense(units = 167, activation="linear")
+  layer_dense(units = 25, activation="linear")
 decoder1 = keras_model(input_dec1, output_dec1)
 summary(decoder1)
 
-aen_input1 = layer_input(shape = 167)
+aen_input1 = layer_input(shape = 25)
 aen_output1 = aen_input1 %>%
   encoder1() %>%
   decoder1()
@@ -222,20 +233,19 @@ encoded_expression3 <- encoder3 %>% predict(as.matrix(encoded_expression2))
 vcor3<-diag(cor(encoded_expression3,xtrain))
 hist(vcor3)
 
-
+```
 
 **4.Using the SAE as pre-training model, couple it with a two-layer DNN to predict the state of the estrogen receptor. The DNN must have 10 nodes in the first layer followed by the output layer.**
 
 Generamos el modelo juntando los 3 encoders anteriores
 
 ```{r}
-sae_input = layer_input(shape = 167)
+sae_input = layer_input(shape = 25)
 sae_output = sae_input %>%
 encoder1() %>%
 encoder2() %>%
 encoder3() %>%
 layer_dense(10,activation = "relu")%>%
-layer_dense(5,activation = "relu")%>%
 layer_dense(1,activation = "sigmoid")
 sae = keras_model(sae_input, sae_output)
 summary(sae)
@@ -299,13 +309,13 @@ legend("bottomright", legend = c("sae"), lty = c(1), col = c("blue"))
 
 ```{r}
 FLAGS <- flags(
-  flag_numeric("nodes", 5)
+  flag_numeric("nodes", params$flagnode1)
 )
 ```
 
 
 ```{r}
-sae_input = layer_input(shape = 167)
+sae_input = layer_input(shape = 25)
 sae_output = sae_input %>%
 encoder1() %>%
 encoder2() %>%
@@ -369,8 +379,45 @@ plot(roc_sae_test, col = "blue", print.auc=TRUE)
 legend("bottomright", legend = c("sae"), lty = c(1), col = c("blue"))
 ```
 
+**So far, we have two SAEs. One for the abundance of proteins (see class examples) and the other for gene expression we just built.**
+
+**7. Split the set of patients with complete data (gene expression and protein abundance) in train and test sets.**
 
 ```{r}
+xprotein<-protein_abundance[protein_abundance$Sample %in% set1,]
+```
+
+
+```{r}
+sel1<-which(xclinical$breast_carcinoma_estrogen_receptor_status != "Positive")
+sel2<-which(xclinical$breast_carcinoma_estrogen_receptor_status != "Negative")
+sel<-intersect(sel1,sel2)
+xclinical<-xclinical[-sel,]
+# xclinical<-xclinical[-which(is.na(xclinical$breast_carcinoma_estrogen_receptor_status)),]
+tot_data <- merge(xclinical, xprotein, by.x = "Sample", by.y = "Sample")
+tot_data <- merge(tot_data, xgene, by.x = "Sample", by.y = "Sample")
 
 ```
+
+
+```{r}
+set.seed(123)
+training<-sample(1:nrow(tot_data),2*nrow(tot_data)/3)
+
+
+xtrain<-tot_data[training,-c(1,2)]
+xtest<-tot_data[-training,-c(1,2)]
+xtrain<-scale(xtrain)
+xtest<-scale(xtest)
+ytrain<-tot_data[training,2]
+ytest<-tot_data[-training,2]
+ylabels<-vector()
+ylabels[ytrain=="Positive"]<-1
+ylabels[ytrain=="Negative"]<-0
+ylabelstest<-vector()
+ylabelstest[ytest=="Positive"]<-1
+ylabelstest[ytest=="Negative"]<-0
+
+```
+
 
